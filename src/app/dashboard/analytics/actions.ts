@@ -3,6 +3,7 @@
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { revalidatePath } from "next/cache";
 
 export async function getRecentTrackingData() {
     const session = await getServerSession(authOptions);
@@ -52,6 +53,5 @@ export async function deleteFingerprint(id: string) {
         where: { id }
     });
 
-    const { revalidatePath } = await import("next/cache");
     revalidatePath('/dashboard/analytics');
 }
