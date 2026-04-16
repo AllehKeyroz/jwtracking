@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./godmode.db"
+}
+
+// =======================
+// SYSTEM AUTH & MULTI-TENANCY
+// =======================
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  workspaces WorkspaceUser[]
+}
+
+model Workspace {
+  id           String   @id @default(cuid())
+  name         String
+  customDomain String?  // track.loja.com
+  geminiApiKey  String?  // Chave individual da IA de cada cliente (Fase 5)
+  geminiModel   String?  @default("gemini-3-flash-latest") 
+  openRouterKey String?  // Chave OpenRouter (Fase 5)
+  openRouterModel String? @default("xiaomi/mimo-v2-flash:free")
+  createdAt     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  users               WorkspaceUser[]
+  whatsappConnections WhatsAppConnection[]
+  shortLinks          ShortLink[]
+  adAccounts          AdAccount[]
+  clicks              ClickSession[]
+  leads               LeadIdentity[]
+  messages            Message[]
+  webhookLogs         WebhookLog[]
+}
+
+model WorkspaceUser {
+  userId      String
+  workspaceId String
+  role        String   @default("OWNER") // OWNER, MEMBER
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, workspaceId])
+}
+
+model WhatsAppConnection {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String   // Ex: "Atendimento Evo" ou "WABA Principal"
+  provider    String   // "EVOLUTION" ou "WABA"
+  instanceId  String?  // Nome da instância Evolution / Phone ID do WABA
+  token       String?  // API Key Evolution ou Token Meta
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages    Message[]
+}
+
+// =======================
+// ESTRUTURA MASTER IDENTITY GRAPH
+// =======================
+
+model ShortLink {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  slug           String   @unique // ex: loj.in/oficial
+  destinationUrl String   // URL Principal ou fallback
+  rotatorUrls    String?  // Round Robin - Múltiplas URLs separadas por vírgula
+  rotatorIndex   Int      @default(0) // Posição atual do roteador
+  isActive       Boolean  @default(true)
+  clicksCount    Int      @default(0) // Cache Rápido
+  createdAt      DateTime @default(now())
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+model DeviceFingerprint {
+  id               String   @id // GPU_HASH + RES_HASH ex: 1ab2c3d4
+  ipAddress        String?
+  gpuVendor        String?
+  screenResolution String?  
+  userAgent        String?
+  browser          String?
+  os               String?
+  deviceType       String?
+  deviceModel      String?
+  language         String?
+  timezone         String?
+  cores            Int?
+  memory           Int?
+  lastSeen         DateTime @default(now())
+
+  clicks ClickSession[]
+}
+
+model ClickSession {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  linkSlug         String?
+  fingerprintHash  String
+  
+  clickId          String?  // fbclid, gclid, etc
+  trafficSource    String?  // utm_source
+  utmMedium        String?
+  utmCampaign      String?
+  utmTerm          String?
+  utmContent       String?
+  
+  clickedAt        DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  fingerprint DeviceFingerprint @relation(fields: [fingerprintHash], references: [id])
+}
+
+model AdAccount {
+  id          String   @id @default(cuid())
+  workspaceId String
+  platform    String   // META
+  pixelId     String?
+  accessToken String?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+}
+
+model LeadIdentity {
+  id          String   @id // Telefone WhatsApp Formatado (+55...)
+  workspaceId String
+  name        String?
+  score       Float    @default(0) // Lifetime Value
+  matchedHash String?  // A Chave mestra ligando ao Hardware que Clicou
+
+  // AI Structured Output (Fase 5.2)
+  aiIntentLevel  String? // "Quente", "Frio", "Morto"
+  aiDealClosed   Boolean?
+  aiValueFloat   Float?
+  aiLossReason   String? 
+  avatarUrl      String? 
+  lastAiAnalysis DateTime?
+
+  createdAt   DateTime @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  messages    Message[]
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  leadId          String   
+  connectionId    String?   
+  direction       String   // "INBOUND" (Lead -> Empresa) ou "OUTBOUND" (Empresa -> Lead)
+  type            String   // "TEXT", "IMAGE", "AUDIO", "DOCUMENT", "OTHER"
+  content         String?  // O texto completo da mensagem
+  mediaUrl        String?  // URL da midia se for imagem/audio
+  rawPayload      String?  // [DEBUG] Payload bruto da API para auditoria
+  status          String   @default("SENT") // SENT, DELIVERED, READ, FAILED
+  externalId      String?  // ID original do provedor
+  timestamp       DateTime @default(now())
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lead            LeadIdentity @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  connection      WhatsAppConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+}
+
+model WebhookLog {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  provider    String   // "WABA" ou "EVOLUTION"
+  event       String?  // Ex: "messages.upsert"
+  payload     String   // JSON stringified
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+}
