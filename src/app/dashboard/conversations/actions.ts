@@ -120,6 +120,10 @@ export async function sendMessageToLead(leadId: string, text: string) {
         conn = fallbackConn as any;
     }
 
+    if (!conn) {
+        throw new Error("Nenhuma conexão WhatsApp disponível.");
+    }
+
     if (conn.provider === 'EVOLUTION') {
         const [url, apiKey] = conn.token!.split('|');
         const apiInstanceId = conn.instanceId;
@@ -285,7 +289,7 @@ export async function analyzeConversationAction(leadId: string) {
     try {
         const analysis = await analyzeWithFallback({
             history,
-            geminiKey: workspace.geminiKey as any || workspace.geminiApiKey,
+            geminiKey: workspace.geminiApiKey,
             geminiModel: workspace.geminiModel,
             orKey: workspace.openRouterKey,
             orModel: workspace.openRouterModel
